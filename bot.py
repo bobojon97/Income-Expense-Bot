@@ -5,7 +5,7 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 import logging
 from config import *
-
+from aiogram.types import KeyboardButton
 
 # Создаем подключение к базе данных
 def get_db():
@@ -33,17 +33,28 @@ class AddIncomeExpense(StatesGroup):
     add_expense_amount = State()
     add_expense_description = State()
 
+# Создаем объекты кнопок
+add_income_button = types.KeyboardButton('Добавить доход')
+add_expense_button = types.KeyboardButton('Добавить расход')
+expenses_button = types.KeyboardButton('Просмотреть расходы')
+
+# Создаем объекты клавиатур
+keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+keyboard.add(add_income_button)
+keyboard.add(add_expense_button)
+keyboard.add(expenses_button)
 
 # Обработчик команды /start
 @dp.message_handler(commands=['start'])
 async def start_handler(message: types.Message):
-    await message.reply('Привет! Для начала добавь доход или расход командой /add_income или /add_expense или /expenses.')
+    await message.reply('Привет! Для начала добавь доход или расход командой', reply_markup=keyboard)
 
-# Обработчик команды /add_income
-@dp.message_handler(commands=['add_income'])
+# Обработчик кнопки "Добавить доход"
+@dp.message_handler(text='Добавить доход')
 async def add_income_handler(message: types.Message):
     await message.reply('Введите сумму дохода:')
     await AddIncomeExpense.add_income_amount.set()
+
 
 # Обработчик ответа на запрос суммы дохода
 @dp.message_handler(state=AddIncomeExpense.add_income_amount)
@@ -74,8 +85,8 @@ async def process_income_description(message: types.Message, state: FSMContext):
     await state.finish()
 
 
-# Обработчик команды /add_expense
-@dp.message_handler(commands=['add_expense'])
+# Обработчик кнопки "Добавить расход"
+@dp.message_handler(text='Добавить расход')
 async def add_expense_handler(message: types.Message):
     await message.reply('Введите сумму расхода:')
     await AddIncomeExpense.add_expense_amount.set()
@@ -108,9 +119,8 @@ async def process_expense_description(message: types.Message, state: FSMContext)
     # Возвращаемся в начальное состояние
     await state.finish()
 
-# Обработчик команды /expenses
-@dp.message_handler(commands=['expenses'])
-async def expenses_handler(message: types.Message):
+@dp.message_handler(text='Просмотреть расходы')
+async def view_expenses_handler(message: types.Message):
     # Получаем список всех расходов из базы данных
     conn = get_db()
     cur = conn.cursor()
