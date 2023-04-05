@@ -1,8 +1,8 @@
-TOKKEN = '1327478180:AAF0o0suH1aKNESauJ7yQmyucsD2oaLxu6g'
+TOKKEN = 'YOUR_BOT_TOKEN'
 
 
-host = 'localhost'
-port = '5432'
-user = 'bobojon'
+host = 'host'
+port = ''
+user = 'user'
 password = 'password'
-database = 'dpi'
+database = 'database'
