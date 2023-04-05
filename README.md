@@ -53,8 +53,9 @@ database = 'database'
 Зависимости
 - aiogram
 - psycopg2
+
 Вы можете установить их с помощью команды:
-pip install -r requirements.txt
+ pip install -r requirements.txt
 
 Автор
 Бот разработан bobojon97.
