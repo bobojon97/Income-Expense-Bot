@@ -1,3 +1,4 @@
+from datetime import datetime
 import psycopg2
 from aiogram import Bot, Dispatcher, types, executor
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -5,8 +6,7 @@ from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 import logging
 from config import *
-from aiogram.types import KeyboardButton
-
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, KeyboardButton
 # Создаем подключение к базе данных
 def get_db():
     conn = psycopg2.connect(
@@ -75,19 +75,24 @@ async def process_income_description(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data['income_description'] = message.text
 
+        # Получаем текущую дату и разделяем ее на год и месяц
+        current_date = datetime.now()
+        year = current_date.year
+        month = current_date.month
+
         # Сохраняем данные о доходе в базу данных
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("INSERT INTO income (amount, description) VALUES (%s, %s)", (data['income_amount'], data['income_description']))
+        cur.execute("INSERT INTO income (amount, description, date, year, month) VALUES (%s, %s, %s, %s, %s)", 
+                    (data['income_amount'], data['income_description'], current_date, year, month))
         conn.commit()
         cur.close()
         conn.close()
 
-    await message.reply(f'<b>Доход {data["income_amount"]}.с добавлен</b>', parse_mode='html')
+    await message.reply(f'<b>Доход {data["income_amount"]}с добавлен</b>', parse_mode='html')
 
     # Возвращаемся в начальное состояние
     await state.finish()
-
 
 # Обработчик кнопки "Добавить расход"
 @dp.message_handler(text='Добавить расход')
@@ -110,15 +115,21 @@ async def process_expense_description(message: types.Message, state: FSMContext)
     async with state.proxy() as data:
         data['expense_description'] = message.text
 
+        # Получаем текущую дату и разделяем ее на год и месяц
+        current_date = datetime.now()
+        year = current_date.year
+        month = current_date.month
+
         # Сохраняем данные о расходе в базу данных
         conn = get_db()
         cur = conn.cursor()
-        cur.execute("INSERT INTO expense (amount, description) VALUES (%s, %s)", (data['expense_amount'], data['expense_description']))
+        cur.execute("INSERT INTO expense (amount, description, date, year, month) VALUES (%s, %s, %s, %s, %s)", 
+                    (data['expense_amount'], data['expense_description'], current_date, year, month))
         conn.commit()
         cur.close()
         conn.close()
 
-    await message.reply(f'<b>Расход {data["expense_amount"]}.с добавлен</b>', parse_mode='html')
+    await message.reply(f'<b>Расход {data["expense_amount"]}с добавлен</b>', parse_mode='html')
 
     # Возвращаемся в начальное состояние
     await state.finish()
@@ -167,34 +178,52 @@ async def view_expenses_handler(message: types.Message):
     cur.close()
     conn.close()
 
-# Обработчик кнопки "Итог"
 @dp.message_handler(text='Итог')
 async def view_total_handler(message: types.Message):
-    # Ваш код для подсчета общей суммы доходов и расходов
-    # Например, вы можете использовать функцию get_db() для получения соединения с базой данных
+    current_year = datetime.now().year
+    years_range = [current_year, current_year - 1]  # Последние два года
+
+    inline_kb_year = InlineKeyboardMarkup(row_width=2)
+    for year in years_range:
+        inline_kb_year.add(InlineKeyboardButton(str(year), callback_data=f"year:{year}"))
+
+    await message.reply("Выберите год:", reply_markup=inline_kb_year)
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('year:'))
+async def choose_month(callback_query: types.CallbackQuery):
+    year = callback_query.data.split(':')[1]
+    inline_kb_month = InlineKeyboardMarkup(row_width=3)
+    months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+    for i, month in enumerate(months, start=1):
+        inline_kb_month.add(InlineKeyboardButton(month, callback_data=f"month:{year}:{i}"))
+
+    await callback_query.message.edit_text(f"Выберите месяц для {year} года:", reply_markup=inline_kb_month)
+
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('month:'))
+async def show_report(callback_query: types.CallbackQuery):
+    _, year, month = callback_query.data.split(':')
+    year, month = int(year), int(month)
+
     conn = get_db()
-    
-    def get_total_income_expense(conn):
-        cursor = conn.cursor()
-        cursor.execute("SELECT SUM(amount) FROM income")
-        total_income = cursor.fetchone()[0]
-        cursor.execute("SELECT SUM(amount) FROM expense")
-        total_expense = cursor.fetchone()[0]
-        cursor.close()
-        return total_income, total_expense
-    
-    total_income, total_expense = get_total_income_expense(conn)
+    cursor = conn.cursor()
+
+    # Получение доходов за выбранный месяц и год
+    cursor.execute("SELECT amount, description FROM income WHERE year = %s AND month = %s", (year, month))
+    incomes = cursor.fetchall()
+
+    # Получение расходов за выбранный месяц и год
+    cursor.execute("SELECT amount, description FROM expense WHERE year = %s AND month = %s", (year, month))
+    expenses = cursor.fetchall()
+
+    cursor.close()
     conn.close()
-    # Формирование текста для ответа
-    response_text = f"<b>Общий доход: {total_income}\nОбщий расход: {total_expense}</b>\n"
-    if total_income > total_expense:
-        response_text += "<b>Вы в прибыли! 😄🚀</b>"
-    elif total_income < total_expense:
-        response_text += "<b>Вы в убытке... 😞💸</b>"
-    else:
-        response_text += "<b>Вы на нуле. 🤷‍♂️💰</b>"
-    # Отправка ответа пользователю
-    await message.reply(response_text, parse_mode='html')
+
+    income_text = "Доходы:\n" + "\n".join([f"{desc}: {amount}с" for amount, desc in incomes]) if incomes else "Доходы отсутствуют.\n"
+    expense_text = "Расходы:\n" + "\n".join([f"{desc}: {amount}с" for amount, desc in expenses]) if expenses else "Расходы отсутствуют.\n"
+
+    await callback_query.message.answer(f"Отчет за {month}-{year}:\n{income_text}\n{expense_text}")
+
 
 if __name__ == '__main__':
     # Запускаем бота
