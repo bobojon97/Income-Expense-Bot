@@ -7,6 +7,9 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 import logging
 from config import *
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, KeyboardButton
+import matplotlib.pyplot as plt
+import io
+
 # Создаем подключение к базе данных
 def get_db():
     conn = psycopg2.connect(
@@ -39,6 +42,7 @@ add_expense_button = types.KeyboardButton('Добавить расход')
 incomes_button = types.KeyboardButton('Просмотреть доходы')
 expenses_button = types.KeyboardButton('Просмотреть расходы')
 total_icome_expense = types.KeyboardButton('Итог')
+statistics_button = types.KeyboardButton('Статистика')
 
 # Создаем объекты клавиатур
 keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -47,6 +51,7 @@ keyboard.add(add_expense_button)
 keyboard.add(incomes_button)
 keyboard.add(expenses_button)
 keyboard.add(total_icome_expense)
+keyboard.add(statistics_button)
 
 # Обработчик команды /start
 @dp.message_handler(commands=['start'])
@@ -137,46 +142,90 @@ async def process_expense_description(message: types.Message, state: FSMContext)
 # Обработчик кнопки "Просмотреть доходы"
 @dp.message_handler(text='Просмотреть доходы')
 async def view_incomes_handler(message: types.Message):
-    # Ваш код для просмотра доходов
-    # Например, вы можете использовать функцию get_db() для получения соединения с базой данных
+    current_year = datetime.now().year
+    years_range = [current_year, current_year - 1]  # Последние два года
+
+    inline_kb_year = InlineKeyboardMarkup(row_width=2)
+    for year in years_range:
+        inline_kb_year.add(InlineKeyboardButton(str(year), callback_data=f"income_year:{year}"))
+
+    await message.reply("Выберите год для просмотра доходов:", reply_markup=inline_kb_year)
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('income_year:'))
+async def choose_month_for_income(callback_query: types.CallbackQuery):
+    year = callback_query.data.split(':')[1]
+    inline_kb_month = InlineKeyboardMarkup(row_width=3)
+    months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+    for i, month in enumerate(months, start=1):
+        inline_kb_month.add(InlineKeyboardButton(month, callback_data=f"income_month:{year}:{i}"))
+
+    await callback_query.message.edit_text(f"Выберите месяц для просмотра доходов за {year} год:", reply_markup=inline_kb_month)
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('income_month:'))
+async def show_incomes_by_month(callback_query: types.CallbackQuery):
+    _, year, month = callback_query.data.split(':')
+    year, month = int(year), int(month)
+
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT id, description, amount FROM income")
-    rows = cursor.fetchall()
-     # Обработка полученных данных, например, отправка пользователю
-    incomes_text = "<b>Доходы</b>:\n"
-    total_amount = 0  # Общая сумма доходов
-    for row in rows:
-        incomes_text += f"<b>ID: {row[0]}, Описание: {row[1]}, Сумма: {row[2]}c</b>\n"
-        total_amount += row[2]
-        
-    incomes_text += f"<b>Общая сумма: {total_amount}.с</b>\n"  # Вывод общей суммы
-    await message.reply(incomes_text, parse_mode='html')
-    
+
+    cursor.execute("SELECT amount, description FROM income WHERE year = %s AND month = %s", (year, month))
+    incomes = cursor.fetchall()
+
     cursor.close()
     conn.close()
 
+    if incomes:
+        income_text = "\n".join([f"{desc}: {amount}с" for amount, desc in incomes])
+        await callback_query.message.answer(f"<b>Доходы за {month}-{year}:\n{income_text}</b>", parse_mode='html')
+    else:
+        await callback_query.message.answer(f"Доходы за {month}-{year} отсутствуют.")
+
+
+
 @dp.message_handler(text='Просмотреть расходы')
 async def view_expenses_handler(message: types.Message):
-    # Получаем список всех расходов из базы данных
+    current_year = datetime.now().year
+    years_range = [current_year, current_year - 1]  # Последние два года
+
+    inline_kb_year = InlineKeyboardMarkup(row_width=2)
+    for year in years_range:
+        inline_kb_year.add(InlineKeyboardButton(str(year), callback_data=f"expense_year:{year}"))
+
+    await message.reply("Выберите год для просмотра расходов:", reply_markup=inline_kb_year)
+
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('expense_year:'))
+async def choose_month_for_expense(callback_query: types.CallbackQuery):
+    year = callback_query.data.split(':')[1]
+    inline_kb_month = InlineKeyboardMarkup(row_width=3)
+    months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+    for i, month in enumerate(months, start=1):
+        inline_kb_month.add(InlineKeyboardButton(month, callback_data=f"expense_month:{year}:{i}"))
+
+    await callback_query.message.edit_text(f"Выберите месяц для просмотра расходов за {year} год:", reply_markup=inline_kb_month)
+
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('expense_month:'))
+async def show_expenses_by_month(callback_query: types.CallbackQuery):
+    _, year, month = callback_query.data.split(':')
+    year, month = int(year), int(month)
+
     conn = get_db()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM expense")
-    expenses = cur.fetchall()
-    expense = "<b>Расходы</b>:\n"
-    total_amount = 0  # Общая сумма расходов
-    for row in expenses:
-        expense += f"<b>ID: {row[0]}, Описание: {row[1]}, Сумма: {row[2]}с</b>\n"
-        total_amount += row[2]
-        
-    expense += f"<b>Общая сумма: {total_amount}.с</b>\n"  # Вывод общей суммы
-    if len(expenses) == 0:
-        await message.reply('<b>Расходов пока нет.</b>', parse_mode='html')
-    else:
-        await message.reply(expense, parse_mode='html')
-    
-    cur.close()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT amount, description FROM expense WHERE year = %s AND month = %s", (year, month))
+    expenses = cursor.fetchall()
+
+    cursor.close()
     conn.close()
+
+    if expenses:
+        expense_text = "\n".join([f"{desc}: {amount}с" for amount, desc in expenses])
+        await callback_query.message.answer(f"<b>Расходы за {month}-{year}:\n{expense_text}</b>", parse_mode='html')
+    else:
+        await callback_query.message.answer(f"Расходы за {month}-{year} отсутствуют.")
+
 
 @dp.message_handler(text='Итог')
 async def view_total_handler(message: types.Message):
@@ -222,7 +271,58 @@ async def show_report(callback_query: types.CallbackQuery):
     income_text = "Доходы:\n" + "\n".join([f"{desc}: {amount}с" for amount, desc in incomes]) if incomes else "Доходы отсутствуют.\n"
     expense_text = "Расходы:\n" + "\n".join([f"{desc}: {amount}с" for amount, desc in expenses]) if expenses else "Расходы отсутствуют.\n"
 
-    await callback_query.message.answer(f"Отчет за {month}-{year}:\n{income_text}\n{expense_text}")
+    await callback_query.message.answer(f"<b>Отчет за {month}-{year}:\n{income_text}\n{expense_text}</b>", parse_mode='html')
+
+
+@dp.message_handler(text='Статистика')
+async def statistics_handler(message: types.Message):
+    current_year = datetime.now().year
+    years_range = [current_year, current_year - 1]  # Последние два года
+
+    inline_kb_year = InlineKeyboardMarkup(row_width=2)
+    for year in years_range:
+        inline_kb_year.add(InlineKeyboardButton(str(year), callback_data=f"stats_year:{year}"))
+
+    await message.reply("Выберите год для просмотра статистики:", reply_markup=inline_kb_year)
+
+
+@dp.callback_query_handler(lambda c: c.data and c.data.startswith('stats_year:'))
+async def generate_statistics(callback_query: types.CallbackQuery):
+    year = int(callback_query.data.split(':')[1])
+    conn = get_db()
+    cursor = conn.cursor()
+
+    # Подготовка данных для диаграммы
+    cursor.execute("SELECT month, SUM(amount) FROM income WHERE year = %s GROUP BY month ORDER BY month", (year,))
+    monthly_incomes = cursor.fetchall()
+    cursor.execute("SELECT month, SUM(amount) FROM expense WHERE year = %s GROUP BY month ORDER BY month", (year,))
+    monthly_expenses = cursor.fetchall()
+
+    months = range(1, 13)
+    incomes = [next((amount for month, amount in monthly_incomes if month == m), 0) for m in months]
+    expenses = [next((amount for month, amount in monthly_expenses if month == m), 0) for m in months]
+
+    cursor.close()
+    conn.close()
+
+    # Генерация диаграммы
+    plt.figure(figsize=(10, 6))
+    plt.plot(months, incomes, label='Доходы', marker='o')
+    plt.plot(months, expenses, label='Расходы', marker='o')
+    plt.title(f'Статистика за {year} год')
+    plt.xlabel('Месяц')
+    plt.ylabel('Сумма')
+    plt.xticks(months)
+    plt.legend()
+    plt.grid(True)
+
+    # Сохранение и отправка диаграммы
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=300)
+    buf.seek(0)
+    await bot.send_photo(callback_query.from_user.id, photo=buf)
+    buf.close()
+    plt.close()
 
 
 if __name__ == '__main__':
